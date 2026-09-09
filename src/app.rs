@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -13,6 +16,7 @@ use ratatui::text::Line;
 use ratatui::Terminal;
 
 use crate::cli::Args;
+use crate::escape::escape_sed_paste;
 use crate::files;
 use crate::ui;
 use crate::worker::{
@@ -111,14 +115,20 @@ impl App {
 
         let mut stdout = io::stdout();
         enable_raw_mode().context("enable raw mode")?;
-        execute!(stdout, EnterAlternateScreen).context("enter alternate screen")?;
+        execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)
+            .context("enter alternate screen")?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend).context("create terminal")?;
 
         let result = self.event_loop(&mut terminal);
 
         disable_raw_mode().ok();
-        execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
+        execute!(
+            terminal.backend_mut(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        )
+        .ok();
         terminal.show_cursor().ok();
         let _ = self.worker.tx.send(WorkerRequest::Shutdown);
 
@@ -137,10 +147,10 @@ impl App {
             }
 
             if event::poll(POLL)? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        self.handle_key(key);
-                    }
+                match event::read()? {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key(key),
+                    Event::Paste(text) => self.handle_paste(text),
+                    _ => {}
                 }
             }
         }
@@ -260,6 +270,21 @@ impl App {
             KeyCode::End => self.cursor = self.expression.len(),
             _ => {}
         }
+    }
+
+    fn handle_paste(&mut self, text: String) {
+        if self.mode != Mode::Editing {
+            return;
+        }
+        // Pasting always targets the expression field (typical sed workflow).
+        self.focus = Focus::Expression;
+        let escaped = escape_sed_paste(&text);
+        if escaped.is_empty() {
+            return;
+        }
+        self.expression.insert_str(self.cursor, &escaped);
+        self.cursor += escaped.len();
+        self.on_expression_changed();
     }
 
     fn on_expression_changed(&mut self) {

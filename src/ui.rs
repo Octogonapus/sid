@@ -38,7 +38,7 @@ fn draw_expression(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let title = if focused {
-        " expression (Tab: diff) "
+        " expression (Tab: diff, paste escapes / \\ &) "
     } else {
         " expression "
     };
