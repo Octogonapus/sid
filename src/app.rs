@@ -19,12 +19,9 @@ use crate::cli::Args;
 use crate::escape::escape_sed_paste;
 use crate::files;
 use crate::ui;
-use crate::worker::{
-    self, load_preview_file, FilePreview, WorkerEvent, WorkerHandle, WorkerRequest,
-    PREVIEW_MAX_FILES,
-};
+use crate::worker::{self, WorkerEvent, WorkerHandle, WorkerRequest};
 
-const DEBOUNCE: Duration = Duration::from_millis(50);
+const DEBOUNCE: Duration = Duration::from_millis(120);
 const POLL: Duration = Duration::from_millis(16);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,11 +49,13 @@ pub struct App {
     pub scroll: usize,
     pub loading: bool,
     pub truncated: bool,
+    pub preview_changed: usize,
+    pub preview_shown: usize,
+    pub preview_scanned: usize,
     pub error: Option<String>,
     pub status_message: Option<String>,
     generation: u64,
     pending_preview_at: Option<Instant>,
-    pub previews: Vec<FilePreview>,
     worker: WorkerHandle,
     should_quit: bool,
 }
@@ -66,17 +65,6 @@ impl App {
         let sed_bin = resolve_sed_bin(&args.sed_bin)?;
         let worker = worker::spawn_worker(sed_bin.clone());
         let files = files::resolve_files(args.files)?;
-
-        let mut previews = Vec::new();
-        let mut load_errors = Vec::new();
-        let preview_paths: Vec<_> = files.iter().take(PREVIEW_MAX_FILES).collect();
-        let preview_file_truncated = files.len() > preview_paths.len();
-        for path in preview_paths {
-            match load_preview_file(path) {
-                Ok(p) => previews.push(p),
-                Err(e) => load_errors.push(e.to_string()),
-            }
-        }
 
         let mut app = Self {
             expression: args.expression.unwrap_or_default(),
@@ -89,16 +77,14 @@ impl App {
             diff_lines: Vec::new(),
             scroll: 0,
             loading: false,
-            truncated: preview_file_truncated || previews.iter().any(|p| p.truncated),
-            error: if load_errors.is_empty() {
-                None
-            } else {
-                Some(load_errors.join("; "))
-            },
+            truncated: false,
+            preview_changed: 0,
+            preview_shown: 0,
+            preview_scanned: 0,
+            error: None,
             status_message: None,
             generation: 0,
             pending_preview_at: None,
-            previews,
             worker,
             should_quit: false,
         };
@@ -315,7 +301,7 @@ impl App {
         let _ = self.worker.tx.send(WorkerRequest::Preview {
             generation,
             expression: self.expression.clone(),
-            files: self.previews.clone(),
+            files: self.files.clone(),
         });
         self.loading = true;
     }
@@ -340,19 +326,26 @@ impl App {
                     generation,
                     lines,
                     truncated,
+                    changed,
+                    shown,
+                    scanned,
+                    done,
                     error,
                 } => {
                     if generation != self.generation {
                         continue;
                     }
-                    self.loading = false;
+                    self.loading = !done;
                     if let Some(err) = error {
                         // Keep last good diff; surface error.
                         self.error = Some(err);
                     } else {
                         self.error = None;
                         self.diff_lines = lines;
-                        self.truncated = truncated || self.previews.iter().any(|p| p.truncated);
+                        self.truncated = truncated;
+                        self.preview_changed = changed;
+                        self.preview_shown = shown;
+                        self.preview_scanned = scanned;
                         if self.scroll >= self.diff_lines.len() {
                             self.scroll = self.diff_lines.len().saturating_sub(1);
                         }
@@ -369,30 +362,10 @@ impl App {
                     } else {
                         self.error = None;
                         self.status_message = Some("applied".into());
-                        // Reload previews from disk and refresh diff.
-                        self.reload_previews();
                         self.request_preview();
                     }
                 }
             }
-        }
-    }
-
-    fn reload_previews(&mut self) {
-        let mut previews = Vec::new();
-        let mut errors = Vec::new();
-        let preview_paths: Vec<_> = self.files.iter().take(PREVIEW_MAX_FILES).collect();
-        let preview_file_truncated = self.files.len() > preview_paths.len();
-        for path in preview_paths {
-            match load_preview_file(path) {
-                Ok(p) => previews.push(p),
-                Err(e) => errors.push(e.to_string()),
-            }
-        }
-        self.previews = previews;
-        self.truncated = preview_file_truncated || self.previews.iter().any(|p| p.truncated);
-        if !errors.is_empty() {
-            self.error = Some(errors.join("; "));
         }
     }
 }

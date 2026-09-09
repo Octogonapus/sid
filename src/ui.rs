@@ -5,7 +5,6 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, Focus, Mode};
-use crate::worker::PREVIEW_MAX_FILES;
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
@@ -150,13 +149,19 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
-    if app.truncated {
+    if app.preview_scanned > 0 {
         parts.push(Span::styled(
             format!(
-                "preview truncated ({}/{} files)  ",
-                app.previews.len().min(PREVIEW_MAX_FILES),
-                app.files.len()
+                "changed:{}/{} scanned:{}  ",
+                app.preview_shown, app.preview_changed, app.preview_scanned
             ),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    if app.truncated {
+        parts.push(Span::styled(
+            "preview truncated  ",
             Style::default().fg(Color::Yellow),
         ));
     }

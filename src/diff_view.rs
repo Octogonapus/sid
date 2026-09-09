@@ -3,7 +3,12 @@ use ratatui::text::{Line, Span};
 use similar::{ChangeTag, TextDiff};
 
 /// Build ratatui lines for a git-style unified hunk view (changed regions only).
+/// Returns an empty vec when `old` and `new` are identical.
 pub fn diff_lines(old: &str, new: &str, context: usize) -> Vec<Line<'static>> {
+    if old == new {
+        return Vec::new();
+    }
+
     let diff = TextDiff::from_lines(old, new);
     let mut out = Vec::new();
 
@@ -51,13 +56,6 @@ pub fn diff_lines(old: &str, new: &str, context: usize) -> Vec<Line<'static>> {
         }
     }
 
-    if out.is_empty() {
-        out.push(Line::from(Span::styled(
-            " (no changes)",
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-
     out
 }
 
@@ -87,5 +85,10 @@ mod tests {
         let lines = diff_lines("hello world\n", "hello rust\n", 3);
         assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains("-hello world"))));
         assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains("+hello rust"))));
+    }
+
+    #[test]
+    fn empty_when_unchanged() {
+        assert!(diff_lines("same\n", "same\n", 3).is_empty());
     }
 }

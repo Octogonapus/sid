@@ -3,14 +3,22 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// Directory names skipped during recursive discovery (in addition to hidden names).
-const SKIP_DIR_NAMES: &[&str] = &[
+/// Directory/file names skipped during recursive discovery.
+const SKIP_NAMES: &[&str] = &[
+    ".git",
+    ".svn",
+    ".hg",
+    ".jj",
     "target",
     "node_modules",
     "__pycache__",
     "dist",
     "build",
-    ".git",
+    ".tox",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
 ];
 
 /// Resolve the file list: explicit CLI paths, or all regular files under `.` recursively.
@@ -22,7 +30,16 @@ pub fn resolve_files(explicit: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     collect_files(Path::new("."), &mut files)
         .context("scanning current directory for files")?;
     files.sort();
+    prefer_github_first(&mut files);
     Ok(files)
+}
+
+fn prefer_github_first(files: &mut [PathBuf]) {
+    files.sort_by_key(|p| !is_under_github(p));
+}
+
+fn is_under_github(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == ".github")
 }
 
 fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -35,7 +52,7 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         let Some(name) = name.to_str() else {
             continue;
         };
-        if name.starts_with('.') || SKIP_DIR_NAMES.contains(&name) {
+        if SKIP_NAMES.contains(&name) {
             continue;
         }
 
@@ -71,20 +88,23 @@ mod tests {
     }
 
     #[test]
-    fn discovers_nested_files_skips_hidden_and_target() {
+    fn discovers_github_skips_git_and_target() {
         let root = temp_workspace();
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(root.join("target/debug")).unwrap();
         fs::create_dir_all(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join(".github/workflows")).unwrap();
         fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
         fs::write(root.join("README.md"), "hi\n").unwrap();
         fs::write(root.join("target/debug/sid"), "bin\n").unwrap();
         fs::write(root.join(".git/config"), "x\n").unwrap();
+        fs::write(root.join(".github/workflows/ci.yml"), "name: ci\n").unwrap();
         fs::write(root.join(".hidden"), "x\n").unwrap();
 
         let mut files = Vec::new();
         collect_files(&root, &mut files).unwrap();
         files.sort();
+        prefer_github_first(&mut files);
 
         let names: Vec<_> = files
             .iter()
@@ -92,10 +112,11 @@ mod tests {
             .collect();
         assert!(names.contains(&PathBuf::from("README.md")));
         assert!(names.contains(&PathBuf::from("src/main.rs")));
+        assert!(names.contains(&PathBuf::from(".github/workflows/ci.yml")));
+        assert!(names.contains(&PathBuf::from(".hidden")));
         assert!(!names.iter().any(|p| p.starts_with("target")));
-        assert!(!names.iter().any(|p| p.components().any(|c| {
-            c.as_os_str().to_string_lossy().starts_with('.')
-        })));
+        assert!(!names.iter().any(|p| p.starts_with(".git")));
+        assert_eq!(names[0], PathBuf::from(".github/workflows/ci.yml"));
     }
 
     #[test]
