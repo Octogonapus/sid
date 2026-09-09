@@ -13,9 +13,11 @@ use ratatui::text::Line;
 use ratatui::Terminal;
 
 use crate::cli::Args;
+use crate::files;
 use crate::ui;
 use crate::worker::{
     self, load_preview_file, FilePreview, WorkerEvent, WorkerHandle, WorkerRequest,
+    PREVIEW_MAX_FILES,
 };
 
 const DEBOUNCE: Duration = Duration::from_millis(50);
@@ -50,7 +52,7 @@ pub struct App {
     pub status_message: Option<String>,
     generation: u64,
     pending_preview_at: Option<Instant>,
-    previews: Vec<FilePreview>,
+    pub previews: Vec<FilePreview>,
     worker: WorkerHandle,
     should_quit: bool,
 }
@@ -59,10 +61,13 @@ impl App {
     pub fn new(args: Args) -> Result<Self> {
         let sed_bin = resolve_sed_bin(&args.sed_bin)?;
         let worker = worker::spawn_worker(sed_bin.clone());
+        let files = files::resolve_files(args.files)?;
 
         let mut previews = Vec::new();
         let mut load_errors = Vec::new();
-        for path in &args.files {
+        let preview_paths: Vec<_> = files.iter().take(PREVIEW_MAX_FILES).collect();
+        let preview_file_truncated = files.len() > preview_paths.len();
+        for path in preview_paths {
             match load_preview_file(path) {
                 Ok(p) => previews.push(p),
                 Err(e) => load_errors.push(e.to_string()),
@@ -74,13 +79,13 @@ impl App {
             cursor: 0,
             focus: Focus::Expression,
             mode: Mode::Editing,
-            files: args.files,
+            files,
             sed_bin,
             backup_suffix: args.in_place,
             diff_lines: Vec::new(),
             scroll: 0,
             loading: false,
-            truncated: previews.iter().any(|p| p.truncated),
+            truncated: preview_file_truncated || previews.iter().any(|p| p.truncated),
             error: if load_errors.is_empty() {
                 None
             } else {
@@ -351,14 +356,16 @@ impl App {
     fn reload_previews(&mut self) {
         let mut previews = Vec::new();
         let mut errors = Vec::new();
-        for path in &self.files {
+        let preview_paths: Vec<_> = self.files.iter().take(PREVIEW_MAX_FILES).collect();
+        let preview_file_truncated = self.files.len() > preview_paths.len();
+        for path in preview_paths {
             match load_preview_file(path) {
                 Ok(p) => previews.push(p),
                 Err(e) => errors.push(e.to_string()),
             }
         }
         self.previews = previews;
-        self.truncated = self.previews.iter().any(|p| p.truncated);
+        self.truncated = preview_file_truncated || self.previews.iter().any(|p| p.truncated);
         if !errors.is_empty() {
             self.error = Some(errors.join("; "));
         }

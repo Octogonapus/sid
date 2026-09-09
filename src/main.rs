@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod diff_view;
+mod files;
 mod ui;
 mod worker;
 

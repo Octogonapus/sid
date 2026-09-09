@@ -11,6 +11,8 @@ use crate::diff_view;
 
 pub const PREVIEW_MAX_LINES: usize = 2_000;
 pub const PREVIEW_MAX_BYTES: usize = 512 * 1024;
+/// Max files included in the live preview (apply still uses the full list).
+pub const PREVIEW_MAX_FILES: usize = 40;
 const DIFF_CONTEXT: usize = 3;
 
 #[derive(Debug, Clone)]
@@ -169,7 +171,7 @@ fn run_preview(
     if files.is_empty() {
         return Ok(Some((
             vec![ratatui::text::Line::from(
-                " Provide file arguments to preview (sid [FILE]...)",
+                " No files found under . (or pass FILE args)",
             )],
             false,
         )));

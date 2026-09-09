@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, Focus, Mode};
+use crate::worker::PREVIEW_MAX_FILES;
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
@@ -107,7 +108,7 @@ fn draw_diff(frame: &mut Frame, app: &App, area: Rect) {
     let lines = if app.diff_lines.is_empty() {
         vec![Line::from(Span::styled(
             if app.files.is_empty() {
-                " Provide file arguments to preview (sid [FILE]...)"
+                " No files found under . (or pass FILE args)"
             } else {
                 " Type a sed expression to preview changes"
             },
@@ -151,7 +152,11 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 
     if app.truncated {
         parts.push(Span::styled(
-            "preview truncated  ",
+            format!(
+                "preview truncated ({}/{} files)  ",
+                app.previews.len().min(PREVIEW_MAX_FILES),
+                app.files.len()
+            ),
             Style::default().fg(Color::Yellow),
         ));
     }
