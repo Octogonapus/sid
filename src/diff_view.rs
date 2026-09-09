@@ -35,9 +35,7 @@ pub fn diff_lines(old: &str, new: &str, context: usize) -> Vec<Line<'static>> {
                     ),
                     ChangeTag::Insert => (
                         "+",
-                        Style::default()
-                            .fg(Color::Green)
-                            .bg(Color::Rgb(0, 40, 0)),
+                        Style::default().fg(Color::Green).bg(Color::Rgb(0, 40, 0)),
                     ),
                     ChangeTag::Equal => (" ", Style::default().fg(Color::DarkGray)),
                 };
@@ -48,10 +46,7 @@ pub fn diff_lines(old: &str, new: &str, context: usize) -> Vec<Line<'static>> {
                         text.pop();
                     }
                 }
-                out.push(Line::from(Span::styled(
-                    format!("{prefix}{text}"),
-                    style,
-                )));
+                out.push(Line::from(Span::styled(format!("{prefix}{text}"), style)));
             }
         }
     }
@@ -83,8 +78,16 @@ mod tests {
     #[test]
     fn detects_substitution() {
         let lines = diff_lines("hello world\n", "hello rust\n", 3);
-        assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains("-hello world"))));
-        assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.content.contains("+hello rust"))));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.spans.iter().any(|s| s.content.contains("-hello world")))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.spans.iter().any(|s| s.content.contains("+hello rust")))
+        );
     }
 
     #[test]

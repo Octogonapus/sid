@@ -166,9 +166,6 @@ mod tests {
     fn explicit_list_unchanged() {
         let files =
             resolve_files(vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")], true).unwrap();
-        assert_eq!(
-            files,
-            vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")]
-        );
+        assert_eq!(files, vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")]);
     }
 }

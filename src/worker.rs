@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use crate::diff_view;
 
@@ -107,9 +107,15 @@ fn worker_loop(sed_bin: PathBuf, req_rx: Receiver<WorkerRequest>, evt_tx: Sender
                 expression,
                 files,
             } => {
-                if let Err(err) =
-                    run_preview(&sed_bin, generation, &expression, &files, &req_rx, &mut pending, &evt_tx)
-                {
+                if let Err(err) = run_preview(
+                    &sed_bin,
+                    generation,
+                    &expression,
+                    &files,
+                    &req_rx,
+                    &mut pending,
+                    &evt_tx,
+                ) {
                     let _ = evt_tx.send(WorkerEvent::PreviewReady {
                         generation,
                         lines: Vec::new(),
@@ -143,6 +149,7 @@ fn worker_loop(sed_bin: PathBuf, req_rx: Receiver<WorkerRequest>, evt_tx: Sender
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_preview(
     evt_tx: &Sender<WorkerEvent>,
     generation: u64,
@@ -251,10 +258,7 @@ fn run_preview(
         }
 
         scanned += 1;
-        let label = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("?");
+        let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("?");
 
         if shown == 0
             && !emit_preview(
@@ -556,7 +560,7 @@ mod tests {
         let dir = tempfile_dir();
         let path = dir.join("sample.txt");
         std::fs::write(&path, "foo bar\n").unwrap();
-        run_apply(&sed, "s/foo/baz/", &[path.clone()], None).unwrap();
+        run_apply(&sed, "s/foo/baz/", std::slice::from_ref(&path), None).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "baz bar\n");
     }
 
@@ -644,7 +648,10 @@ mod tests {
             .collect::<Vec<_>>()
             .join("");
         assert!(text.contains("z-hit.txt"), "{text}");
-        assert!(text.contains("+hello rust") || text.contains("hello rust"), "{text}");
+        assert!(
+            text.contains("+hello rust") || text.contains("hello rust"),
+            "{text}"
+        );
     }
 
     #[test]
