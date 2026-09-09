@@ -64,7 +64,7 @@ impl App {
     pub fn new(args: Args) -> Result<Self> {
         let sed_bin = resolve_sed_bin(&args.sed_bin)?;
         let worker = worker::spawn_worker(sed_bin.clone());
-        let files = files::resolve_files(args.files)?;
+        let files = files::resolve_files(args.files, !args.no_ignore)?;
 
         let mut app = Self {
             expression: args.expression.unwrap_or_default(),

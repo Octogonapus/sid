@@ -6,7 +6,7 @@ use clap::Parser;
 #[command(
     name = "sid",
     about = "Interactive sed with a live git-style diff preview",
-    after_help = "Opens a TUI by default. With no FILE args, scans the current directory recursively (skips hidden paths and common build dirs). Type a sed expression to preview changes; Ctrl+S applies in-place."
+    after_help = "Opens a TUI by default. With no FILE args, scans the current directory recursively (respects .gitignore; skips VCS/build dirs). Type a sed expression to preview changes; Ctrl+S applies in-place."
 )]
 pub struct Args {
     /// Prefill the sed expression editor
@@ -21,6 +21,10 @@ pub struct Args {
     #[arg(short = 'i', long = "in-place", num_args = 0..=1, default_missing_value = "")]
     pub in_place: Option<String>,
 
-    /// Files to preview / edit (default: all non-hidden files under `.`, recursively)
+    /// Include gitignored files when scanning `.` (ignored when FILE args are given)
+    #[arg(long = "no-ignore")]
+    pub no_ignore: bool,
+
+    /// Files to preview / edit (default: recursive scan of `.`)
     pub files: Vec<PathBuf>,
 }

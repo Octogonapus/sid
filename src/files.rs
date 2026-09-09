@@ -1,9 +1,9 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use ignore::WalkBuilder;
 
-/// Directory/file names skipped during recursive discovery.
+/// Directory/file names always skipped during recursive discovery.
 const SKIP_NAMES: &[&str] = &[
     ".git",
     ".svn",
@@ -22,12 +22,13 @@ const SKIP_NAMES: &[&str] = &[
 ];
 
 /// Resolve the file list: explicit CLI paths, or all regular files under `.` recursively.
-pub fn resolve_files(explicit: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+///
+/// When `respect_gitignore` is true (default), `.gitignore` / git exclude rules are applied.
+pub fn resolve_files(explicit: Vec<PathBuf>, respect_gitignore: bool) -> Result<Vec<PathBuf>> {
     if !explicit.is_empty() {
         return Ok(explicit);
     }
-    let mut files = Vec::new();
-    collect_files(Path::new("."), &mut files)
+    let mut files = collect_files(Path::new("."), respect_gitignore)
         .context("scanning current directory for files")?;
     files.sort();
     prefer_github_first(&mut files);
@@ -42,31 +43,38 @@ fn is_under_github(path: &Path) -> bool {
     path.components().any(|c| c.as_os_str() == ".github")
 }
 
-fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = fs::read_dir(dir)
-        .with_context(|| format!("reading directory {}", dir.display()))?;
+fn should_skip_name(name: &str) -> bool {
+    SKIP_NAMES.contains(&name)
+}
 
-    for entry in entries {
-        let entry = entry.with_context(|| format!("reading entry in {}", dir.display()))?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
+fn collect_files(root: &Path, respect_gitignore: bool) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    let walker = WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(respect_gitignore)
+        .git_global(respect_gitignore)
+        .git_exclude(respect_gitignore)
+        .ignore(respect_gitignore)
+        .parents(respect_gitignore)
+        .filter_entry(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .map(|name| !should_skip_name(name))
+                .unwrap_or(true)
+        })
+        .build();
+
+    for entry in walker {
+        let entry = entry.with_context(|| format!("walking {}", root.display()))?;
+        let Some(ft) = entry.file_type() else {
             continue;
         };
-        if SKIP_NAMES.contains(&name) {
-            continue;
-        }
-
-        let path = entry.path();
-        let meta = entry
-            .metadata()
-            .with_context(|| format!("stat {}", path.display()))?;
-        if meta.is_dir() {
-            collect_files(&path, out)?;
-        } else if meta.is_file() {
-            out.push(path);
+        if ft.is_file() {
+            out.push(entry.into_path());
         }
     }
-    Ok(())
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -101,8 +109,7 @@ mod tests {
         fs::write(root.join(".github/workflows/ci.yml"), "name: ci\n").unwrap();
         fs::write(root.join(".hidden"), "x\n").unwrap();
 
-        let mut files = Vec::new();
-        collect_files(&root, &mut files).unwrap();
+        let mut files = collect_files(&root, false).unwrap();
         files.sort();
         prefer_github_first(&mut files);
 
@@ -120,8 +127,45 @@ mod tests {
     }
 
     #[test]
+    fn skips_gitignored_files_by_default() {
+        let root = temp_workspace();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join(".gitignore"), "secret.txt\nbuild-out/\n").unwrap();
+        fs::write(root.join("keep.txt"), "ok\n").unwrap();
+        fs::write(root.join("secret.txt"), "nope\n").unwrap();
+        fs::create_dir_all(root.join("build-out")).unwrap();
+        fs::write(root.join("build-out/x.txt"), "nope\n").unwrap();
+
+        let files = collect_files(&root, true).unwrap();
+        let names: Vec<_> = files
+            .iter()
+            .map(|p| p.strip_prefix(&root).unwrap().to_path_buf())
+            .collect();
+        assert!(names.contains(&PathBuf::from("keep.txt")));
+        assert!(names.contains(&PathBuf::from(".gitignore")));
+        assert!(!names.iter().any(|p| p.ends_with("secret.txt")));
+        assert!(!names.iter().any(|p| p.starts_with("build-out")));
+    }
+
+    #[test]
+    fn no_ignore_includes_gitignored_files() {
+        let root = temp_workspace();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join(".gitignore"), "secret.txt\n").unwrap();
+        fs::write(root.join("secret.txt"), "nope\n").unwrap();
+
+        let files = collect_files(&root, false).unwrap();
+        let names: Vec<_> = files
+            .iter()
+            .map(|p| p.strip_prefix(&root).unwrap().to_path_buf())
+            .collect();
+        assert!(names.contains(&PathBuf::from("secret.txt")));
+    }
+
+    #[test]
     fn explicit_list_unchanged() {
-        let files = resolve_files(vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")]).unwrap();
+        let files =
+            resolve_files(vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")], true).unwrap();
         assert_eq!(
             files,
             vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")]
